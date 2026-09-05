@@ -1,109 +1,419 @@
-# Parallel PDF Text Extractor (OpenMP + C)
+# Parallel PDF Text Extractor
 
-A real-world educational project demonstrating practical parallel computing using C, OpenMP, and the Poppler PDF library on Ubuntu Linux.
+A C-based PDF text extraction tool that uses **OpenMP** for page-level parallelism and **Poppler GLib** for PDF processing.
 
-## Project Overview
+The project explores practical parallel computing concepts including shared-memory parallelism, workload distribution, OpenMP scheduling, thread scalability, speedup, parallel efficiency, and load balancing.
 
-This project extracts text from PDF files. Since extracting text from one page does not depend on any other page, this is an inherently parallelizable task. We use OpenMP to distribute the pages across multiple threads to achieve speedup.
+---
 
-## Why PDF Extraction is Parallelizable
+## Features
 
-In a PDF, pages are relatively independent. We can open the document, determine the total number of pages, and then instruct different CPU threads to extract text from different pages concurrently. 
+- PDF text extraction using Poppler GLib
+- Sequential and OpenMP-parallel extraction modes
+- Page-level parallelism
+- Thread-local Poppler documents for safer concurrent PDF processing
+- Preserves original page ordering
+- Static, dynamic, and guided OpenMP scheduling
+- Configurable OpenMP thread count
+- Automated performance benchmarking
+- Warm-up runs and repeated measurements
+- Average, minimum, maximum, and standard deviation reporting
+- Speedup and parallel-efficiency calculations
+- Core extraction and end-to-end timing
+- Guided scheduling chunk-size experiments
+- Byte-for-byte correctness verification
+- CSV benchmark output
+- Hardware/CPU information reporting
 
-However, since the lengths of pages vary (some might have a lot of text, some might have none), this creates an interesting load balancing problem which we can solve using OpenMP scheduling (`static`, `dynamic`, `guided`).
+---
 
-## Architecture
+## How It Works
 
-1. **Sequential Base**: A baseline implementation extracting pages from 0 to N.
-2. **Parallel Implementation**: Uses `#pragma omp parallel for` to distribute the extraction workload.
-3. **Result Storage**: A shared array `PageResult results[num_pages]` is allocated. Each thread writes its extracted text to its specific index (`results[page_num]`). This ensures the final output maintains the original PDF page order and avoids race conditions.
+PDF pages can generally be processed independently, making page-level text extraction a suitable workload for parallelization.
 
-## Race Conditions and Thread Safety
+The application divides the pages among OpenMP threads:
 
-**Race Conditions:** If multiple threads attempt to write to the `output.txt` file simultaneously using `fprintf`, the file stream's state will become corrupted or text will interleave incorrectly. We avoid this by having threads write to a memory array (our `results` struct array) based on their assigned page index, and a single sequential write phase happens at the end.
+```text
+                    PDF
+                     |
+             Determine page count
+                     |
+          +----------+----------+
+          |                     |
+     Sequential             Parallel
+          |                     |
+   One PDF document      One document/thread
+          |                     |
+          |              +------+------+
+          |              |             |
+          |           Thread 1      Thread 2 ...
+          |              |             |
+          |           Page i        Page j
+          |              |             |
+          |              +------+------+
+          |                     |
+          +----------+----------+
+                     |
+              Ordered results[]
+                     |
+              Sequential output
+                     |
+                  Text file
 
-**Thread Safety:** The GLib-based Poppler API does not guarantee that concurrent calls to `poppler_document_get_page` on a shared `PopplerDocument` object are thread-safe without a global lock. To guarantee thread safety without introducing a serializing lock, this project uses a **thread-local document architecture**. Each OpenMP worker thread opens its own independent instance of the `PopplerDocument` from the file URI at the start of its parallel region. This introduces a slight memory and initialization overhead but ensures robust parallel execution.
 
-## Dependencies
 
-- **GCC** (with OpenMP support)
-- **Poppler GLib** (`libpoppler-glib-dev`)
-- **pkg-config**
-- **Make**
+Each page's extracted text is stored at its corresponding page index:
 
-## Installation
+results[page_number]
 
-Run the following commands on Ubuntu:
+This allows threads to perform extraction concurrently while the final output is reconstructed sequentially in the original PDF order.
 
-```bash
-sudo apt-get update
-sudo apt-get install build-essential pkg-config libpoppler-glib-dev
-```
+Thread Safety
 
-## Compilation
+The parallel implementation uses a thread-local PopplerDocument architecture.
 
-We provide a `Makefile`.
+Instead of allowing multiple OpenMP threads to operate on the same document object, each worker thread opens its own independent Poppler document instance.
 
-```bash
+OpenMP Parallel Region
+
+Thread 0 ──> PopplerDocument 0 ──> pages
+Thread 1 ──> PopplerDocument 1 ──> pages
+Thread 2 ──> PopplerDocument 2 ──> pages
+...
+Thread N ──> PopplerDocument N ──> pages
+
+This avoids relying on a global lock around page extraction and allows the extraction workload to remain parallel.
+
+The trade-off is additional document initialization and memory overhead for each worker thread.
+
+Avoiding Race Conditions
+
+Threads do not write directly to the final output file during parallel extraction.
+
+Instead:
+
+Each thread extracts a page.
+The extracted text is stored in results[page_index].
+The parallel region completes.
+Results are written sequentially in page order.
+
+For example:
+
+Thread 2 → Page 8  → results[8]
+Thread 0 → Page 1  → results[1]
+Thread 3 → Page 12 → results[12]
+Thread 1 → Page 4  → results[4]
+
+The final output is still:
+
+Page 1
+Page 2
+Page 3
+...
+Page 12
+
+regardless of which thread finished first.
+
+OpenMP Scheduling
+
+The extractor supports three OpenMP scheduling strategies.
+
+Static
+schedule(static)
+
+Iterations are distributed ahead of time with low scheduling overhead.
+
+This works well when page-processing costs are relatively uniform, but can suffer from load imbalance when some pages require substantially more processing.
+
+Dynamic
+schedule(dynamic)
+
+Threads request additional work as they finish their current assignments.
+
+This can improve load balancing for workloads with varying page-processing costs, at the cost of additional scheduling overhead.
+
+Guided
+schedule(guided)
+
+Guided scheduling begins with larger chunks and progressively decreases the chunk size.
+
+It provides a compromise between the low overhead of static scheduling and the adaptive workload distribution of dynamic scheduling.
+
+Requirements
+
+The project is designed for Ubuntu/Linux and requires:
+
+GCC
+OpenMP
+Poppler GLib
+GLib
+pkg-config
+Make
+
+Install the required packages on Ubuntu:
+
+sudo apt update
+sudo apt install build-essential pkg-config libpoppler-glib-dev
+Building
+
+Clone the repository and enter the project directory:
+
+git clone <repository-url>
+cd parallel-pdf-text-extractor
+
+Build:
+
 make
+
+The project is compiled with:
+
+-Wall -Wextra -Wpedantic -O2 -fopenmp
+
+Clean the build:
+
 make clean
-```
-
-The Makefile uses `-fopenmp` for OpenMP and `pkg-config --cflags --libs poppler-glib` to correctly link the Poppler library.
-
-## Usage
-
-```bash
-# Sequential mode
+Usage
+Sequential extraction
 ./pdf_extractor input.pdf output.txt --mode sequential
-
-# Parallel mode (defaults to max threads)
+Parallel extraction
 ./pdf_extractor input.pdf output.txt --mode parallel
+Specify the number of threads
+./pdf_extractor input.pdf output.txt \
+    --mode parallel \
+    --threads 8
+Select a scheduling strategy
+./pdf_extractor input.pdf output.txt \
+    --mode parallel \
+    --threads 8 \
+    --schedule guided
 
-# Parallel mode with explicit threads and scheduling
-./pdf_extractor input.pdf output.txt --mode parallel --threads 4 --schedule dynamic
+Supported schedules:
 
-# Benchmark mode (runs sequential, then parallel, checks correctness, and reports speedup)
-./pdf_extractor input.pdf output_base --mode benchmark --threads 4
-```
+static
+dynamic
+guided
+Help
+./pdf_extractor --help
+Benchmarking
 
-## Benchmarking & Amdahl's Law
+The project includes an automated benchmark:
 
-We measure the *Sequential Time* ($T_s$) and the *Parallel Time* ($T_p$).
+./benchmark.sh path/to/document.pdf
 
-**Speedup** = $T_s / T_p$  
-**Efficiency** = (Speedup / Number of Threads) * 100%
+For example:
 
-### Amdahl's Law
-Speedup will not increase linearly with the number of threads forever. Amdahl's law states:
-$$ Speedup \leq \frac{1}{(1-P) + \frac{P}{N}} $$
-Where $P$ is the parallelizable fraction of the code, and $N$ is the number of threads. 
-In our application, opening the PDF, allocating memory, and the final sequential writing of the array to the text file are *serial* portions of the code. Only the actual page extraction is parallelized. Thus, maximum speedup is bounded by those serial sections.
+./benchmark.sh pdf/my_document.pdf
 
-## Benchmark Methodology
+The benchmark automatically evaluates:
 
-To ensure scientifically reliable and repeatable measurements, the built-in benchmark performs the following rigorous steps:
+Threads:
+1
+2
+4
+8
+16
 
-1. **Hardware Detection**: The benchmark script reports the CPU model, physical/logical core counts, and OpenMP limits.
-2. **Timing Region**: We strictly measure the **core page-extraction workload**. The timing starts *after* thread-local document initialization (using OpenMP barriers) and ends immediately after parallel extraction completes. File I/O is explicitly excluded from the timing.
-3. **Repeated Runs**: For each thread configuration (1, 2, 4, 8, 16), the benchmark performs **2 warm-up runs** (ignored) and **5 measured runs**.
-4. **Calculations**: Speedup and parallel efficiency are calculated by taking the *average* time of the 1-thread execution as the baseline, and comparing it against the *average* time of N-thread executions. Minimum, maximum, and sample standard deviation are also computed.
-5. **Fairness**: Every thread count processes the exact same 481-page input PDF (`textbook.pdf`) using the same OpenMP schedule.
-6. **Correctness Verification**: At the very end of the benchmarking suite, a sequential run and a max-thread parallel run are executed and their outputs are verified byte-for-byte to ensure the parallel optimizations did not corrupt extraction.
-7. **CSV Output**: The script additionally produces a `benchmark_results.csv` file.
+and the following scheduling strategies:
 
-*Limitations*: The thread-local document architecture overhead, memory bandwidth saturation (especially on systems with high core counts but few memory channels), and operating-system thread scheduling variations will naturally bound the maximum achievable parallel efficiency.
+static
+dynamic
+guided
 
-## Scalability and Scheduling
+It also evaluates guided scheduling with different chunk sizes:
 
-You can test scalability by running `bash benchmark.sh <your_pdf.pdf>`.
+guided,1
+guided,2
+guided,4
+guided,8
+guided,16
+Benchmark Methodology
 
-If pages have vastly different amounts of text, you might experience *load imbalance*. 
-- `schedule(static)` (default) divides the pages into chunks blindly.
-- `schedule(dynamic)` assigns chunks to threads as they finish their previous work, improving balance if pages vary in complexity.
+Each configuration is tested using:
 
-## Troubleshooting
+2 warm-up runs
+5 measured runs
 
-- **No Output**: Ensure the PDF actually contains extractable text (not just scanned images).
-- **Compilation errors**: Ensure `libpoppler-glib-dev` is installed.
-- **Incorrect Order**: This shouldn't happen with our array-based architecture. If you modified it to `fprintf` inside the parallel loop, you introduced a race condition!
+The benchmark reports:
+
+Average core extraction time
+Minimum core extraction time
+Maximum core extraction time
+Sample standard deviation
+Average end-to-end time
+Speedup
+Parallel efficiency
+Core Extraction Timing
+
+The primary performance measurement covers the parallel page-extraction workload.
+
+Thread-local Poppler document initialization occurs before the core timing region.
+
+File output is also excluded from the core extraction timing.
+
+This makes the measurement focused on the part of the application being parallelized.
+
+Speedup
+
+Speedup is calculated as:
+
+Speedup(N) = T1 / TN
+
+where:
+
+T1 = average extraction time using one parallel worker
+TN = average extraction time using N workers
+Parallel Efficiency
+Efficiency = Speedup / N × 100
+
+where N is the number of OpenMP threads.
+
+Benchmark Results
+
+A 481-page PDF was used as the primary benchmark workload on:
+
+CPU: AMD Ryzen 7 7840HS
+Physical cores: 8
+Logical CPUs: 16
+Threads per core: 2
+Guided Thread Scaling
+Threads	Avg Core Time	Speedup	Efficiency
+1	1.1531 s	1.000×	100.00%
+2	0.6116 s	1.885×	94.27%
+4	0.3172 s	3.635×	90.89%
+8	0.1868 s	6.173×	77.16%
+16	0.1706 s	6.758×	42.24%
+
+The best measured core extraction time was:
+
+0.1706 seconds
+
+using 16 OpenMP threads with guided scheduling.
+
+However, increasing from 8 to 16 threads produced only a modest additional improvement. This demonstrates diminishing returns when moving beyond the processor's 8 physical cores onto its 16 logical threads.
+
+Scheduling Comparison at 8 Threads
+Schedule	Avg Core Time	Speedup	Efficiency
+Static	0.2411 s	4.756×	59.44%
+Dynamic	0.2225 s	5.194×	64.92%
+Guided	0.1868 s	6.173×	77.16%
+
+For this workload, guided scheduling provided the best measured performance at 8 threads.
+
+The result suggests that page-processing costs are not completely uniform, making adaptive workload distribution beneficial.
+
+Guided Chunk Size at 8 Threads
+Chunk Size	Avg Core Time	Speedup	Efficiency
+1	0.1839 s	6.220×	77.74%
+2	0.1858 s	6.120×	76.50%
+4	0.1823 s	6.185×	77.31%
+8	0.1868 s	5.966×	74.58%
+16	0.1924 s	5.808×	72.60%
+
+Small guided chunk sizes performed best in this experiment, while larger chunks showed a gradual performance decrease.
+
+The differences between chunk sizes 1–4 are small, so these results should not be interpreted as proving a universally optimal chunk size.
+
+Correctness Verification
+
+Performance improvements are only useful if the extracted output remains correct.
+
+After benchmarking, the application performs a full sequential extraction and a full parallel extraction.
+
+The resulting files are compared byte-for-byte.
+
+Example:
+
+Correctness Check: PASS
+(Sequential output == Parallel output)
+
+This verifies that parallel execution preserves the extracted text and page ordering.
+
+Amdahl's Law
+
+The complete application contains both parallel and non-parallel portions.
+
+Conceptually:
+
+PDF initialization
+       |
+Memory allocation
+       |
+Parallel page extraction  <── OpenMP
+       |
+Sequential output
+
+Amdahl's Law describes the theoretical limitation on speedup:
+
+             1
+S(N) = ---------------
+        (1-P) + P/N
+
+where:
+
+P is the parallelizable fraction
+N is the number of threads
+
+The benchmark's core timing intentionally focuses on the page-extraction workload, while the complete application still contains initialization, synchronization, memory-management, and output overhead.
+
+Therefore, increasing the number of threads does not produce unlimited linear speedup.
+
+Scalability Observations
+
+The benchmark demonstrates several practical parallel-computing behaviors:
+
+Increasing thread count improves performance
+
+Performance improves significantly from 1 to 8 threads.
+
+Speedup is not linear
+
+Doubling the number of threads does not consistently double performance.
+
+Efficiency decreases at higher thread counts
+
+This is particularly visible when moving from 8 to 16 logical threads.
+
+Scheduling strategy matters
+
+For the tested PDF, guided scheduling performed better than static and dynamic scheduling at 8 threads.
+
+Workload characteristics matter
+
+PDF pages can have different amounts and types of content, producing different extraction costs. Scheduling strategies therefore affect how effectively CPU work is balanced.
+
+Limitations
+
+The benchmark results depend on:
+
+PDF structure and page complexity
+CPU frequency and thermal state
+Operating-system scheduling
+Poppler implementation and behavior
+Thread-local document initialization overhead
+Memory/cache behavior
+OpenMP runtime implementation
+
+Therefore, the measured results should be interpreted as results for the tested workload and hardware rather than universal performance characteristics of PDF extraction.
+
+Project Structure
+parallel-pdf-text-extractor/
+├── include/
+│   ├── benchmark.h
+│   └── pdf_extractor.h
+├── src/
+│   ├── benchmark.c
+│   ├── main.c
+│   └── pdf_extractor.c
+├── tests/
+├── benchmark.sh
+├── Makefile
+├── README.md
+└── .gitignore
+
+PDF files, generated output, compiled binaries, object files, and benchmark-generated CSV files are excluded from version control.
+
+License
+
+This project is intended for educational and portfolio use.
+
+If you reuse or extend the project, please review the licensing requirements of the Poppler and GLib libraries used by the application.
