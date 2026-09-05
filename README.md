@@ -418,3 +418,76 @@ License
 This project is intended for educational and portfolio use.
 
 If you reuse or extend the project, please review the licensing requirements of the Poppler and GLib libraries used by the application.
+
+
+## Example Run
+
+The extractor was tested on a **481-page Parallel Computing textbook** to evaluate scalability and scheduling performance.
+
+### Input PDF
+
+```text
+pdf/textbook.pdf
+Pages: 481
+```
+
+### Command
+
+```bash
+./pdf_extractor pdf/textbook.pdf output/textbook_output.txt \
+    --mode parallel \
+    --threads 8 \
+    --schedule guided
+```
+
+### Console Output
+
+```text
+Mode: Parallel
+Processing 481 pages in parallel (Threads: 8, Schedule: guided)...
+
+========================================
+Performance Results
+========================================
+Parallel Time   : 0.1868 s
+========================================
+
+Successfully wrote extracted text to output/textbook_output.txt
+```
+
+### Extracted Output (Preview)
+
+```text
+================ PAGE 1 ================
+
+Parallel Computing
+
+Introduction
+
+Parallel computing is the simultaneous use of multiple computing resources
+to solve a computational problem...
+
+================ PAGE 2 ================
+
+Why Parallel Computing?
+
+• Increased performance
+• Better resource utilization
+• Scalability across processors
+
+...
+```
+
+> **Note:** Only a short preview is shown here. The repository does **not** include the complete extracted textbook because it is copyrighted material.
+
+
+## Example Output
+
+### Benchmark Execution
+
+![Benchmark Results](assets/benchmark_preview1.png)
+![Benchmark Results](assets/benchmark_preview2.png)
+
+### Extracted Text Preview
+
+![Extracted Output](assets/text_output_preview.png)
