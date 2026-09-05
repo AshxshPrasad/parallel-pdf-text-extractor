@@ -60,7 +60,7 @@ The application divides the pages among OpenMP threads:
                      |
                   Text file
 
-
+```
 
 Each page's extracted text is stored at its corresponding page index:
 
@@ -68,7 +68,7 @@ results[page_number]
 
 This allows threads to perform extraction concurrently while the final output is reconstructed sequentially in the original PDF order.
 
-Thread Safety
+## Thread Safety
 
 The parallel implementation uses a thread-local PopplerDocument architecture.
 
@@ -86,7 +86,7 @@ This avoids relying on a global lock around page extraction and allows the extra
 
 The trade-off is additional document initialization and memory overhead for each worker thread.
 
-Avoiding Race Conditions
+## Avoiding Race Conditions
 
 Threads do not write directly to the final output file during parallel extraction.
 
@@ -114,7 +114,7 @@ Page 12
 
 regardless of which thread finished first.
 
-OpenMP Scheduling
+## OpenMP Scheduling
 
 The extractor supports three OpenMP scheduling strategies.
 
@@ -139,7 +139,7 @@ Guided scheduling begins with larger chunks and progressively decreases the chun
 
 It provides a compromise between the low overhead of static scheduling and the adaptive workload distribution of dynamic scheduling.
 
-Requirements
+## Requirements
 
 The project is designed for Ubuntu/Linux and requires:
 
@@ -154,7 +154,8 @@ Install the required packages on Ubuntu:
 
 sudo apt update
 sudo apt install build-essential pkg-config libpoppler-glib-dev
-Building
+
+## Building
 
 Clone the repository and enter the project directory:
 
@@ -172,7 +173,7 @@ The project is compiled with:
 Clean the build:
 
 make clean
-Usage
+## Usage
 Sequential extraction
 ./pdf_extractor input.pdf output.txt --mode sequential
 Parallel extraction
