@@ -1,0 +1,21 @@
+# Build artifacts
+obj/
+pdf_extractor
+
+# Generated output
+output/
+
+# Temporary files
+*.o
+*.out
+
+# Editor/IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Benchmark-generated files
+benchmark_results.csv
